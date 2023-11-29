@@ -231,15 +231,16 @@ def train(cfg_dict, train_loader, val_loader):
                 avg_val_loss = np.average(total_val_loss)
                 preds = np.concatenate(preds_lst, axis=0)
                 trues = np.concatenate(trues_lst, axis=0)
-                mse, mae, ssim, psnr = combined_metric(preds, trues, 0, 1, True)
-                print('vali mse:{:.4f}, mae:{:.4f}, ssim:{:.4f}, psnr:{:.4f}'.format(mse, mae, ssim, psnr))
+                #mse, mae, ssim, psnr = combined_metric(preds, trues, 0, 1, True) This crashes currently due to some memory reasons
+                #print('vali mse:{:.4f}, mae:{:.4f}, ssim:{:.4f}, psnr:{:.4f}'.format(mse, mae, ssim, psnr))
                 model.train()
-                print("Epoch: {0} | Train Loss: {1:.4f} Vali Loss: {2:.4f}\n".format(epoch + 1, train_loss, avg_val_loss))
+                logging.info(f"Epoch: {epoch + 1} | Train Loss: {train_loss} Vali Loss: {avg_val_loss}")
 
                 visualize(past_frames, true_future_frames, pred_future_frames,
                           past_frames_test, true_future_frames_test, pred_future_frames_test,NUM_FUTURE_FRAMES, cfg_dict["log_dir"])
 
                 if (avg_val_loss<best_avg_val_loss):
+                    best_avg_val_loss=avg_val_loss
                     torch.save(
                         {
                             "epoch": epoch,
