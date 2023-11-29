@@ -156,7 +156,7 @@ def evaluate(cfg_dict, val_dataloader, device, simvp, unet, t2):
     true_mask=true_mask.numpy()
     true_mask_torch = torch.Tensor(true_mask)
 
-    logging.info("answer_masks shape:", answer_masks_torch.shape)
+    logging.info(f"answer_masks shape: {answer_masks_torch.shape}")
 
     jaccard = torchmetrics.JaccardIndex(task="multiclass", num_classes=49)
     logging.info(f"Evaluation Jaccard Score: {jaccard(answer_masks_torch, true_mask_torch)}")

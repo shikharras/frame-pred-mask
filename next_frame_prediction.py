@@ -288,7 +288,7 @@ if __name__ == "__main__":
     train_dataset = MovingObjectsDataset(
         root_dir=f'{train_data_dir}', 
         unlabeled_dir=unlabeled_data_dir, 
-        use_unlabeled_count=10,
+        use_unlabeled_count=cfg_dict["fp_use_unlabeled_count"],
         transform=transforms.Compose(
                 [
                     transforms.ToTensor(),
