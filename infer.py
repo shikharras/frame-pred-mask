@@ -193,7 +193,7 @@ if __name__=='__main__':
 
     device="cuda" if torch.cuda.is_available() else "cpu"
 
-    simvp = SimVP(shape_in=(11, 3, 240, 160))
+    simvp = nn.DataParallel(SimVP(shape_in=(11, 3, 240, 160)))
     unet = Unet_model()
 
     # frame pred
