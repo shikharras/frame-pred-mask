@@ -31,6 +31,7 @@ class MovingObjectsDataset(torch.utils.data.Dataset):
     def __init__(self, root_dir, unlabeled_dir, use_unlabeled_count=0, transform=None):
         self.root_dir = root_dir
         self.transform = transform
+        self.unlabeled_dir = unlabeled_dir
         unlabeled_folders = []
         if use_unlabeled_count>0:
             unlabeled_folders = [i for i in os.listdir(unlabeled_dir) if 'video_' in i][:use_unlabeled_count]
@@ -46,10 +47,11 @@ class MovingObjectsDataset(torch.utils.data.Dataset):
     def __getitem__(self, index):
         # Get the folder name corresponding to the given index
         folder_name = self.folder_names[index]
-
+        if (index>=1000):
+            image_filenames = [i for i in os.listdir(os.path.join(self.unlabeled_dir, folder_name)) if i.endswith('.png')]
+        else:
         # Get the list of image filenames in the folder
-        image_filenames = [i for i in os.listdir(os.path.join(self.root_dir, folder_name))
-                           if i.endswith('.png')]
+            image_filenames = [i for i in os.listdir(os.path.join(self.root_dir, folder_name)) if i.endswith('.png')]
         # print(folder_name, image_filenames)
         image_filenames.sort(key= lambda i: int(i.lstrip('image_').rstrip('.png')))
 
@@ -267,7 +269,7 @@ if __name__ == "__main__":
 
     cfg_dict = load_config(args.cfg)
 
-    logging.basicConfig(filename= cfg_dict['log_dir'] + 'fp_train.log',filemode='a',level=logging.DEBUG)
+    logging.basicConfig(filename= cfg_dict['log_dir'] + 'fp_train.log',filemode='a',level=logging.INFO)
 
     logging.info(f"Loaded config file and initialized logging")
     logging.info(f"CFG_Dict: {cfg_dict}")

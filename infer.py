@@ -186,7 +186,7 @@ if __name__=='__main__':
 
     cfg_dict = load_config(args.cfg)
 
-    logging.basicConfig(filename= cfg_dict['log_dir'] + 'infer.log',filemode='a',level=logging.DEBUG)
+    logging.basicConfig(filename= cfg_dict['log_dir'] + 'infer.log',filemode='a',level=logging.INFO)
 
     logging.info(f"Loaded config file and initialized logging")
     logging.info(f"CFG_Dict: {cfg_dict}")
