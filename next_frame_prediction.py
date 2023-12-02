@@ -34,24 +34,19 @@ class MovingObjectsDataset(torch.utils.data.Dataset):
         self.unlabeled_dir = unlabeled_dir
         unlabeled_folders = []
         if use_unlabeled_count>0:
-            unlabeled_folders = [i for i in os.listdir(unlabeled_dir) if 'video_' in i][:use_unlabeled_count]
+            unlabeled_folders = [os.path.join(unlabeled_dir, i) for i in os.listdir(unlabeled_dir) if 'video_' in i][:use_unlabeled_count]
 
         # Get the list of folder names in the root directory
-        self.folder_names = [i for i in os.listdir(self.root_dir) if 'video_' in i]
-        self.folder_names.extend(unlabeled_folders)
+        self.folder_paths = [os.path.join(self.root_dir, i) for i in os.listdir(self.root_dir) if 'video_' in i]
+        self.folder_paths.extend(unlabeled_folders)
 
     def __len__(self):
         # Return the number of folders in the root directory
-        return len(self.folder_names)
+        return len(self.folder_paths)
 
     def __getitem__(self, index):
-        # Get the folder name corresponding to the given index
-        folder_name = self.folder_names[index]
-        if (index>=1000):
-            image_filenames = [i for i in os.listdir(os.path.join(self.unlabeled_dir, folder_name)) if i.endswith('.png')]
-        else:
-        # Get the list of image filenames in the folder
-            image_filenames = [i for i in os.listdir(os.path.join(self.root_dir, folder_name)) if i.endswith('.png')]
+        folder_name = self.folder_paths[index]
+        image_filenames = [i for i in os.listdir(folder_name) if i.endswith('.png')]
         # print(folder_name, image_filenames)
         image_filenames.sort(key= lambda i: int(i.lstrip('image_').rstrip('.png')))
 
@@ -64,10 +59,8 @@ class MovingObjectsDataset(torch.utils.data.Dataset):
             if self.transform is not None:
                 image = self.transform(image)
             if i < 11:
-                # print(f"{image_filename} going in input")
                 input_images.append(image)
             else:
-                # print(f"{image_filename} going in target")
                 target_images.append(image)
         
         # Convert the input and target image lists to tensors
@@ -174,9 +167,9 @@ def train(cfg_dict, train_loader, val_loader):
 
     # Begin training (restart from checkpoint if possible)
     start_epoch = 0
-    if os.path.isfile(cfg_dict["model_root"] + "frame_pred_model/" + f"/model_{file_identifier}.pth"):
-        print("Restarting training...")
-        checkpoint = torch.load(cfg_dict["model_root"] + "frame_pred_model/" + f"/model_{file_identifier}.pth")
+    if os.path.isfile(os.path.join(cfg_dict["model_root"], "frame_pred_model", cfg_dict["fp_model_name"])):
+        logging.info("Restarting training from checkpoint")
+        checkpoint = torch.load(os.path.join(cfg_dict["model_root"], "frame_pred_model", cfg_dict["fp_model_name"]))
         model.load_state_dict(checkpoint["simvp_state_dict"])
         optimizer.load_state_dict(checkpoint["simvp_optimizer_state_dict"])
         start_epoch = checkpoint["epoch"]
@@ -191,7 +184,7 @@ def train(cfg_dict, train_loader, val_loader):
     # Train loop
 
     for epoch in range(start_epoch, epochs):
-        print("Epoch Number: ", epoch)
+        logging.info(f"Epoch Number: {epoch}")
         train_pbar = tqdm(train_loader)
         model.train()
         train_loss_list = []
