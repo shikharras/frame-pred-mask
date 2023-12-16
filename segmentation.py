@@ -5,8 +5,6 @@ import torch
 import torch.nn as nn
 from torch.utils.data import Dataset
 from torch.optim import Adam
-import torchvision.transforms as traonsforms
-#from torchsummary import summary
 from torch.utils.data import Dataset,DataLoader, random_split
 
 from tqdm import tqdm
@@ -25,22 +23,20 @@ import logging
 import json
 
 
-class VideoDataset(Dataset):
+class SegmentationDataset(Dataset):
     """
     Dataset class to load frames and their masks
     """
     def __init__(self, root_dir, transform=None,val=False):
         self.root_dir = root_dir
         self.transform = transform
-        self.val=val     #set to true if loading videos from validation set
+        self.folder_paths = [os.path.join(self.root_dir, i) for i in os.listdir(self.root_dir) if 'video_' in i]
 
     def __len__(self):
         return len(os.listdir(self.root_dir))
 
     def __getitem__(self, idx):
-        if self.val:
-            idx+=1000       # Videos 1000-2000 are validation videos
-        video_path = os.path.join(self.root_dir, 'video_{}'.format(idx))
+        video_path = self.folder_paths[idx]
         frame=[]
         mask_list=[]
         for fn in range(22): ##### can do something better than looping?
@@ -56,34 +52,6 @@ class VideoDataset(Dataset):
             frame.append(img)
             mask_list.append(mask)
         return frame,mask_list
-
-def check_accuracy(loader, model, device):
-    """
-    Helper function to check accuracy of predicted mask and true mask
-    """
-    num_correct = 0
-    num_pixels = 0
-    dice_score = 0
-    model.eval()
-
-    with torch.no_grad():
-        for x, y in loader:
-            x=torch.stack(x,dim=1).type(torch.float)
-            y=torch.stack(y,dim=1)
-            x = x.to(device)
-            y = y.to(device)
-            for i in range(22):
-                d=x[:,i,:,:,:]
-                t=y[:,i,:,:]
-                softmax = nn.Softmax(dim=1)
-                preds = torch.argmax(softmax(model(d)),axis=1)
-
-                num_correct += (preds == t).sum()
-                num_pixels += torch.numel(preds)
-                dice_score += (2 * (preds * t).sum()) / ((preds + t).sum() + 1e-8)
-
-    logging.info(f"Got {num_correct}/{num_pixels} with acc {num_correct/num_pixels*100:.2f}")
-    logging.info(f"Dice score: {dice_score/len(loader)}")
 
 def train(cfg_dict, train_loader, val_loader):
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -160,7 +128,6 @@ def train(cfg_dict, train_loader, val_loader):
                         output=model(d)
                         loss=loss_fn(output,t)
                     val_loss+=loss.item()
-            #check_accuracy(val_loader, model, device)
             
         if True:     #save all models
             torch.save({
@@ -208,8 +175,8 @@ if __name__=='__main__':
                 ToTensorV2(),
                 ]) # making it channel-first
     
-    train_dataset = VideoDataset(train_data_dir ,transform=t1)
-    val_dataset= VideoDataset(val_data_dir,transform=t1,val=True)
+    train_dataset = SegmentationDataset(train_data_dir ,transform=t1)
+    val_dataset= SegmentationDataset(val_data_dir,transform=t1,val=True)
     train_loader = DataLoader(train_dataset, batch_size=cfg_dict["seg_batch_size"], shuffle=True,num_workers=1)
     val_loader=DataLoader(val_dataset,batch_size=cfg_dict["seg_batch_size"],shuffle=False,num_workers=1)
 

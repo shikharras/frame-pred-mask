@@ -7,7 +7,7 @@ All models will get saved in models/
 All logs will get saved in logs/
 
 Train the video prediction model with the framepred.slurm file. Train the segmentation model with the segpred.slurm file. 
-To run the infer file, change the config.json to point to your saved models. Then, run the gpuinfer.slurm file. Based on the logs, find the segmentation model which gave the best validation IOU on the whole task. Write this model's name in the 'seg_model_name' key in config.json file. And for the final test test, run the following on a GPU node.
+To run the infer file, change the 'fp_model_name' key in config.json to point to your Lightning checkpoint. Then, run the gpuinfer.slurm file. Based on the logs, find the segmentation model which gave the best validation IOU on the whole task. Write this model's name in the 'seg_model_name' key in config.json file. And for the final test test, run the following on a GPU node.
 ```python infer.py --test``` 
 
 
