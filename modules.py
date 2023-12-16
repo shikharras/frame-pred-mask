@@ -1,6 +1,8 @@
 import torch
 from torch import nn
+from pytorch_lightning import LightningModule
 
+#SimVP code taken from https://github.com/A4Bio/SimVP-Simpler-yet-Better-Video-Prediction
 class BasicConv2d(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size, stride, padding, transpose=False, act_norm=False):
         super(BasicConv2d, self).__init__()
@@ -154,10 +156,34 @@ class SimVP(nn.Module):
 
 
     def forward(self, x_raw):
+        B, T, C, H, W = x_raw.shape
+        x = x_raw.reshape(B*T, C, H, W)
+
+        embed, skip = self.enc(x)
+        _, C_, H_, W_ = embed.shape
+
+        z = embed.view(B, T, C_, H_, W_)
+        hid = self.hid(z)
+        hid = hid.reshape(B*T, C_, H_, W_)
+
+        Y = self.dec(hid, skip)
+        Y = Y.reshape(B, T, C, H, W)
+        return Y
+    
+class SimVPSegmentation(nn.Module):
+    def __init__(self, shape_in, hid_S=16, hid_T=256, N_S=4, N_T=8, incep_ker=[3,5,7,11], groups=8):
+        super(SimVPSegmentation, self).__init__()
+        T, C, H, W = shape_in
+        self.enc = Encoder(C, hid_S, N_S)
+        self.hid = Mid_Xnet(T*hid_S, hid_T, N_T, incep_ker, groups)
+        self.dec = Decoder(hid_S, 49, N_S)
+
+
+    def forward(self, x_raw):
         print(x_raw.get_device())
         B, T, C, H, W = x_raw.shape
         print(B, T, C, H, W)
-        x = x_raw.view(B*T, C, H, W)
+        x = x_raw.reshape(B*T, C, H, W)
 
         embed, skip = self.enc(x)
         _, C_, H_, W_ = embed.shape
@@ -168,17 +194,13 @@ class SimVP(nn.Module):
         hid = hid.reshape(B*T, C_, H_, W_)
 
         Y = self.dec(hid, skip)
-        Y = Y.reshape(B, T, C, H, W)
+        Y = Y.reshape(B, T, 49, H, W)
         return Y
     
 
-
-class encoding_block(nn.Module):
-    """
-    Encoding Block for Unet model
-    """
+class UNetEncoder(nn.Module):
     def __init__(self,in_channels, out_channels):
-        super(encoding_block,self).__init__()
+        super(UNetEncoder,self).__init__()
         model = []
         model.append(nn.Conv2d(in_channels, out_channels, 3, 1, 1, bias=False))
         model.append(nn.BatchNorm2d(out_channels))
@@ -190,26 +212,26 @@ class encoding_block(nn.Module):
     def forward(self, x):
         return self.conv(x)
     
-class Unet_model(nn.Module):
+class UNet(nn.Module):
     """
-    Unet Model
+    Unet Model - Like in https://www.kaggle.com/code/vikram12301/multiclass-semantic-segmentation-pytorch
     """
-    def __init__(self,out_channels=49,features=[64, 128, 256, 512]):
-        super(Unet_model,self).__init__()
+    def __init__(self,out_channels=49,features=[64, 128, 256, 512, 1024]):
+        super(UNet,self).__init__()
         self.pool = nn.MaxPool2d(kernel_size=(2,2),stride=(2,2))
-        self.conv1 = encoding_block(3,features[0])
-        self.conv2 = encoding_block(features[0],features[1])
-        self.conv3 = encoding_block(features[1],features[2])
-        self.conv4 = encoding_block(features[2],features[3])
-        self.conv5 = encoding_block(features[3]*2,features[3])
-        self.conv6 = encoding_block(features[3],features[2])
-        self.conv7 = encoding_block(features[2],features[1])
-        self.conv8 = encoding_block(features[1],features[0])
-        self.tconv1 = nn.ConvTranspose2d(features[-1]*2, features[-1], kernel_size=2, stride=2)
-        self.tconv2 = nn.ConvTranspose2d(features[-1], features[-2], kernel_size=2, stride=2)
-        self.tconv3 = nn.ConvTranspose2d(features[-2], features[-3], kernel_size=2, stride=2)
-        self.tconv4 = nn.ConvTranspose2d(features[-3], features[-4], kernel_size=2, stride=2)
-        self.bottleneck = encoding_block(features[3],features[3]*2)
+        self.conv1 = UNetEncoder(3,features[0])
+        self.conv2 = UNetEncoder(features[0],features[1])
+        self.conv3 = UNetEncoder(features[1],features[2])
+        self.conv4 = UNetEncoder(features[2],features[3])
+        self.conv5 = UNetEncoder(features[4],features[3])
+        self.conv6 = UNetEncoder(features[3],features[2])
+        self.conv7 = UNetEncoder(features[2],features[1])
+        self.conv8 = UNetEncoder(features[1],features[0])
+        self.tconv1 = nn.ConvTranspose2d(features[-1], features[-2], kernel_size=2, stride=2)
+        self.tconv2 = nn.ConvTranspose2d(features[-2], features[-3], kernel_size=2, stride=2)
+        self.tconv3 = nn.ConvTranspose2d(features[-3], features[-4], kernel_size=2, stride=2)
+        self.tconv4 = nn.ConvTranspose2d(features[-4], features[-5], kernel_size=2, stride=2)
+        self.bottleneck = UNetEncoder(features[3],features[4])
         self.final_layer = nn.Conv2d(features[0],out_channels,kernel_size=1)
     def forward(self,x):
         skip_connections = []
@@ -241,3 +263,41 @@ class Unet_model(nn.Module):
         x = self.conv8(x)
         x = self.final_layer(x)
         return x
+class FramePredictionModel(LightningModule):
+    def __init__(self, cfg_dict, len_data=0):
+        super(FramePredictionModel, self).__init__()
+        self.cfg_dict = cfg_dict
+        self.NUM_FUTURE_FRAMES = 11
+        self.IMG_SIZE = (160, 240)
+        self.len_trainloader=len_data
+
+        self.model = SimVP(shape_in=(11, 3, self.IMG_SIZE[0], self.IMG_SIZE[1]))
+
+        self.criterion = torch.nn.MSELoss()
+
+        self.save_hyperparameters('cfg_dict', 'len_data')
+
+        
+    def forward(self, x):
+        return self.model(x)
+
+    def training_step(self, batch, batch_idx):
+        past_frames, true_future_frames = batch
+        pred_future_frames = self(past_frames)
+        loss = self.criterion(pred_future_frames, true_future_frames)
+        self.log('train_loss', loss)
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        past_frames, true_future_frames = batch
+        pred_future_frames = self(past_frames)
+        loss = self.criterion(pred_future_frames, true_future_frames)
+        self.log('val_loss', loss)
+        return loss
+
+    def configure_optimizers(self):
+        lr = self.cfg_dict["fp_lr"]
+        optimizer = torch.optim.Adam(self.parameters(), lr=lr)
+        lr_scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer=optimizer, max_lr=lr, steps_per_epoch=self.len_trainloader,epochs=self.cfg_dict['fp_epochs'])
+
+        return [optimizer], [lr_scheduler]

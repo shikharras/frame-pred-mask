@@ -120,11 +120,9 @@ def test(cfg_dict, test_dataloader, device, simvp, unet, t2):
             predicted_mask = torch.argmax(softmax(unet(target_frames)),axis=1).squeeze(0)
             answer_masks.append(predicted_mask)
             logging.info(f"predicted_mask shape: {i, predicted_mask.shape}")
-    answer_masks=torch.stack(answer_masks,dim=0).to('cpu')
-    answer_masks=answer_masks.numpy()
-    answer_masks_torch = torch.Tensor(answer_masks)
-    logging.info("answer_masks shape:", answer_masks_torch.shape)
-    torch.save(answer_masks, os.path.join(cfg_dict['models'], 'predicted_masks_final_answer.pt'))
+    answer_masks_torch = torch.stack(answer_masks,dim=0).to("cpu")
+    logging.info(f"answer_masks shape: {answer_masks_torch.shape}, {type(answer_masks_torch)}")
+    torch.save(answer_masks, os.path.join(cfg_dict['model_root'], 'leaderboard_2_team_16.pt'))
 
     
 
@@ -137,7 +135,6 @@ def evaluate(cfg_dict, val_dataloader, device, simvp, unet, t2):
     i=0
     with torch.no_grad():
         for data, mask_r in val_dataloader:
-            logging.info(f"data shape: {data.shape}")
             i+=1
             data=data.to(device)
             pred_future_frames = simvp(data[:,:11,:,:,:])
@@ -148,24 +145,15 @@ def evaluate(cfg_dict, val_dataloader, device, simvp, unet, t2):
             answer_masks.append(predicted_mask)
             mask_r = mask_r.squeeze(0)
             true_mask.append(mask_r)
-    answer_masks=torch.stack(answer_masks,dim=0).to('cpu')
-    answer_masks=answer_masks.numpy()
-    answer_masks_torch = torch.Tensor(answer_masks)
+    answer_masks=torch.stack(answer_masks,dim=0).to("cpu")
 
-    true_mask=torch.stack(true_mask,dim=0).to('cpu')
-    true_mask=true_mask.numpy()
-    true_mask_torch = torch.Tensor(true_mask)
+    true_mask=torch.stack(true_mask,dim=0).to("cpu")
 
-    logging.info(f"answer_masks shape: {answer_masks_torch.shape}")
+    logging.info(f"answer_masks shape: {answer_masks.shape}")
 
     jaccard = torchmetrics.JaccardIndex(task="multiclass", num_classes=49)
-    logging.info(f"Evaluation Jaccard Score: {jaccard(answer_masks_torch, true_mask_torch)}")
-
-def load_config(file_path_or_dict='config.json'):
-    if type(file_path_or_dict) is str:
-        config = dict(json.load(open(file_path_or_dict)))
-    return config
-
+    jacc_score = jaccard(answer_masks, true_mask)
+    logging.info(f"Evaluation Jaccard Score: {jacc_score}")
 
 if __name__=='__main__':
 
@@ -184,34 +172,14 @@ if __name__=='__main__':
 
     args = parser.parse_args()
 
-    cfg_dict = load_config(args.cfg)
+    cfg_dict = dict(json.load(open(args.cfg)))
 
-    logging.basicConfig(filename= cfg_dict['log_dir'] + 'infer.log',filemode='a',level=logging.INFO)
+    logging.basicConfig(filename= cfg_dict['log_dir'] + 'infer_loop.log',filemode='a',level=logging.INFO)
 
     logging.info(f"Loaded config file and initialized logging")
     logging.info(f"CFG_Dict: {cfg_dict}")
 
     device="cuda" if torch.cuda.is_available() else "cpu"
-
-    simvp = FramePredictionModel(cfg_dict)
-    unet = UNet()
-
-    simvp_path = os.path.join(cfg_dict["model_root"], "frame_pred_model", cfg_dict["fp_model_name"])
-
-    SM_wt_path = os.path.join(cfg_dict["model_root"], "seg_model", cfg_dict["seg_model_name"])
-
-    simvp_state_dict = torch.load(simvp_path,map_location="cpu")["state_dict"]
-    SM_state_dict=torch.load(SM_wt_path, map_location="cpu")
-
-    unet_dic=SM_state_dict["model_state_dict"]
-
-    simvp.load_state_dict(simvp_state_dict)
-    unet.load_state_dict(unet_dic)
-
-    simvp=simvp.to(device)
-    unet=unet.to(device)
-
-
 
 
     t1 = transforms.Compose([
@@ -220,13 +188,39 @@ if __name__=='__main__':
 
     t2=transforms.Compose([transforms.Resize((160,240)),transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)),])
 
+    simvp = FramePredictionModel(cfg_dict)
 
-    val_data_dir = os.path.join(cfg_dict["dataset_root"], "val")
+    simvp_path = os.path.join(cfg_dict["model_root"], "frame_pred_model", cfg_dict["fp_model_name"])
+    simvp_state_dict = torch.load(simvp_path,map_location="cpu")["state_dict"]
 
-    val_dataset = ValDataset(root_dir=f'{val_data_dir}', transform=t1)
-    val_dataloader = DataLoader(val_dataset, batch_size=1, shuffle=False)
+    simvp.load_state_dict(simvp_state_dict)
 
-    evaluate(cfg_dict, val_dataloader, device, simvp, unet, t2)
+    simvp=simvp.to(device)
+
+    for i in range(100):
+        
+        unet = UNet()
+
+        logging.info(f"Now loading model: {str(i)}, {cfg_dict['seg_model_name'] + str(i)}")
+        fname = cfg_dict['seg_model_name'].split('.')[0]
+        ext = cfg_dict['seg_model_name'].split('.')[1]
+        SM_wt_path = os.path.join(cfg_dict["model_root"], "seg_model", fname + '_' + str(i) + '.' + ext)
+
+        SM_state_dict=torch.load(SM_wt_path, map_location="cpu")
+
+        unet_dic=SM_state_dict["model_state_dict"]
+
+        unet.load_state_dict(unet_dic)
+
+        unet=unet.to(device)
+
+        #t2=transforms.Compose([transforms.Resize((160,240))])
+        val_data_dir = os.path.join(cfg_dict["dataset_root"], "val")
+
+        val_dataset = ValDataset(root_dir=f'{val_data_dir}', transform=t1)
+        val_dataloader = DataLoader(val_dataset, batch_size=1, shuffle=False)
+
+        evaluate(cfg_dict, val_dataloader, device, simvp, unet, t2)
 
 
     if (args.test):

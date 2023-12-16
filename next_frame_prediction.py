@@ -23,11 +23,10 @@ from PIL import Image
 import torchvision.transforms.functional as F
 
 from modules import SimVP
-from metrics import combined_metric
 
 
 
-class MovingObjectsDataset(torch.utils.data.Dataset):
+class FFPDataset(torch.utils.data.Dataset):
     def __init__(self, root_dir, unlabeled_dir, use_unlabeled_count=0, transform=None):
         self.root_dir = root_dir
         self.transform = transform
@@ -60,8 +59,6 @@ class MovingObjectsDataset(torch.utils.data.Dataset):
                 image = self.transform(image)
             if i < 11:
                 input_images.append(image)
-            else:
-                target_images.append(image)
         
         # Convert the input and target image lists to tensors
         input_tensor = torch.stack(input_images)
@@ -121,13 +118,6 @@ def visualize(past_frames, true_future_frames, pred_future_frames,
         pred_future_frames_test.detach().cpu().permute(1, 2, 0).numpy(),
     )
 
-    # show(past_frames)
-    # show(true_future_frames)
-    # show(pred_future_frames)
-    # show(past_frames_test)
-    # show(true_future_frames_test)
-    # show(pred_future_frames_test)
-
 def train(cfg_dict, train_loader, val_loader):
     """
     Train loop
@@ -157,9 +147,7 @@ def train(cfg_dict, train_loader, val_loader):
     # Define optimizers and LR Schedulers
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
-    lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(
-        optimizer=optimizer, milestones=[10, 20, 30, 40], gamma=0.5
-    )
+    lr_scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=lr, steps_per_epoch=len(train_loader), epochs=epochs)
 
     criterion = torch.nn.MSELoss()
 
@@ -172,6 +160,7 @@ def train(cfg_dict, train_loader, val_loader):
         checkpoint = torch.load(os.path.join(cfg_dict["model_root"], "frame_pred_model", cfg_dict["fp_model_name"]))
         model.load_state_dict(checkpoint["simvp_state_dict"])
         optimizer.load_state_dict(checkpoint["simvp_optimizer_state_dict"])
+        lr_scheduler.load_state_dict(checkpoint["simvp_scheduler_state_dict"])
         start_epoch = checkpoint["epoch"]
 
     # Value trackers
@@ -198,7 +187,7 @@ def train(cfg_dict, train_loader, val_loader):
             optimizer.zero_grad()
             train_loss.backward()
             optimizer.step()
-        lr_scheduler.step()
+            lr_scheduler.step()
 
         if (epoch) % log_step == 0:
         # Evaluate and test the model
@@ -224,8 +213,7 @@ def train(cfg_dict, train_loader, val_loader):
                 avg_val_loss = np.average(total_val_loss)
                 preds = np.concatenate(preds_lst, axis=0)
                 trues = np.concatenate(trues_lst, axis=0)
-                #mse, mae, ssim, psnr = combined_metric(preds, trues, 0, 1, True) This crashes currently due to some memory reasons
-                #print('vali mse:{:.4f}, mae:{:.4f}, ssim:{:.4f}, psnr:{:.4f}'.format(mse, mae, ssim, psnr))
+
                 model.train()
                 logging.info(f"Epoch: {epoch + 1} | Train Loss: {train_loss} Vali Loss: {avg_val_loss}")
 
@@ -238,7 +226,8 @@ def train(cfg_dict, train_loader, val_loader):
                         {
                             "epoch": epoch,
                             "simvp_state_dict": model.state_dict(),
-                            "simvp_optimizer_state_dict": optimizer.state_dict()
+                            "simvp_optimizer_state_dict": optimizer.state_dict(),
+                            "simvp_scheduler_state_dict": lr_scheduler.state_dict()
                         },
                         cfg_dict["model_root"] + "frame_pred_model/" + f"/model_{file_identifier}.pth",
                     )
@@ -278,7 +267,7 @@ if __name__ == "__main__":
 
 
     # Create dataloaders for train and test dataset
-    train_dataset = MovingObjectsDataset(
+    train_dataset = FFPDataset(
         root_dir=f'{train_data_dir}', 
         unlabeled_dir=unlabeled_data_dir, 
         use_unlabeled_count=cfg_dict["fp_use_unlabeled_count"],
@@ -295,7 +284,7 @@ if __name__ == "__main__":
         shuffle=False)
 
 
-    val_dataset = MovingObjectsDataset(
+    val_dataset = FFPDataset(
         root_dir=f'{val_data_dir}',
         unlabeled_dir=unlabeled_data_dir,
         transform=transforms.Compose(

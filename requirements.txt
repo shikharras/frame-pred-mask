@@ -5,3 +5,4 @@ scikit-image
 matplotlib
 albumentations
 torchmetrics
+lightning

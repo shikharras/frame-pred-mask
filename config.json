@@ -2,8 +2,8 @@
     "fp_lr": 0.01,
     "fp_epochs": 1000,
     "fp_batch_size": 16,
-    "fp_log_step": 10,
-    "fp_use_unlabeled_count": 10,
+    "fp_log_step": 2,
+    "fp_use_unlabeled_count": 13000,
     "seg_lr": 0.0001,
     "seg_epochs": 100,
     "seg_batch_size": 32,
@@ -13,6 +13,7 @@
     "dataset_root": "/scratch/sr6644/dl_data/dataset/",
     "model_root": "/scratch/sr6644/frame-pred-mask/models/",
     "fp_model_name": "model_fp_1000.pth",
-    "seg_model_name": "segmentation_model.pth"
+    "seg_model_name": "segmentation_model.pth",
+    "st_model_name": "frozenmodel_st_1000.pth"
 
 }

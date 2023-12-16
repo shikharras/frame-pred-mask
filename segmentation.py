@@ -17,7 +17,9 @@ import matplotlib.pyplot as plt
 from albumentations.pytorch import ToTensorV2
 import albumentations as A
 
-from modules import Unet_model
+from modules import UNet, SimVP, FramePredictionModel
+import random
+from torchvision import transforms
 
 import logging
 import json
@@ -43,7 +45,7 @@ class VideoDataset(Dataset):
         mask_list=[]
         for fn in range(22): ##### can do something better than looping?
             image_path=os.path.join(video_path,'image_{}.png'.format(fn))
-            img=np.array(Image.open(image_path))
+            img=np.array(Image.open(image_path))/1.
             mask_path = os.path.join(video_path, 'mask.npy')
             masks = np.load(mask_path)
             mask=masks[fn]
@@ -66,7 +68,7 @@ def check_accuracy(loader, model, device):
 
     with torch.no_grad():
         for x, y in loader:
-            x=torch.stack(x,dim=1)
+            x=torch.stack(x,dim=1).type(torch.float)
             y=torch.stack(y,dim=1)
             x = x.to(device)
             y = y.to(device)
@@ -85,7 +87,7 @@ def check_accuracy(loader, model, device):
 
 def train(cfg_dict, train_loader, val_loader):
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    model = Unet_model().to(device)
+    model = UNet().to(device)
     lr = cfg_dict["seg_lr"]
     num_epochs = cfg_dict["seg_epochs"]
     loss_fn = nn.CrossEntropyLoss()
@@ -93,23 +95,45 @@ def train(cfg_dict, train_loader, val_loader):
     scaler = torch.cuda.amp.GradScaler()
     old_val_loss=float('inf')
 
+    simvp = FramePredictionModel(cfg_dict)
+    simvp_path = os.path.join(cfg_dict["model_root"], "frame_pred_model", cfg_dict["fp_model_name"])
+    simvp_state_dict = torch.load(simvp_path,map_location="cpu")["state_dict"]
+
+    simvp.load_state_dict(simvp_state_dict)
+    simvp=simvp.to(device)
+
+    simvp.eval()
+
+    logging.info("Loaded simvp model")
+
     for epoch in range(num_epochs):
-        """
-        Training Loop
-        """
+        print(f"Epoch Number: {epoch}")
+       
         model.train()
         loop = tqdm(enumerate(train_loader),total=len(train_loader))
         for batch_idx, (data, targets) in loop:
             data=torch.stack(data,dim=1)
             targets=torch.stack(targets,dim=1)
             data = data.to(device)
+            data = data.type(torch.float)
             targets = targets.to(device)
             targets = targets.type(torch.long)
-            #forward pass
+           
+         
+            if random.random() > 0.65:
+                with torch.no_grad():
+                    print("data shape: ", data.shape)
+                    pred_future_frames = simvp(data[:,:11,:,:,:])
+                    print("pff shape: ", pred_future_frames.shape)
+                    target_frames=pred_future_frames #Getting all predicted frames
+                    print("target_frames: ", target_frames.shape)
+                data[:, 11:, :, :, :] = target_frames
+
+
+
             for i in range(22):
                 d=data[:,i,:,:,:].to(device)
                 t=targets[:,i,:,:].to(device)
-                #### why is the shape of t 7??? is it batch size??
 
                 with torch.cuda.amp.autocast():
                     predictions = model(d)
@@ -127,6 +151,7 @@ def train(cfg_dict, train_loader, val_loader):
             for (data,targets) in val_loader:
                 data=torch.stack(data,dim=1).to(device)
                 targets=torch.stack(targets,dim=1).to(device)
+                data = data.type(torch.float)
                 targets = targets.type(torch.long)
                 for i in range(22):
                     d=data[:,i,:,:,:].to(device)
@@ -135,15 +160,15 @@ def train(cfg_dict, train_loader, val_loader):
                         output=model(d)
                         loss=loss_fn(output,t)
                     val_loss+=loss.item()
-            check_accuracy(val_loader, model, device)
+            #check_accuracy(val_loader, model, device)
             
-        if val_loss<old_val_loss:     #save model if validation loss decreases
+        if True:     #save all models
             torch.save({
                 'epoch':epoch,
                 'model_state_dict': model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
                 'loss': val_loss,
-            }, os.path.join(cfg_dict["model_root"], "seg_model", "segmentation_model.pth"))
+            }, os.path.join(cfg_dict["model_root"], "seg_model", f"segmentation_model_{epoch}.pth"))
             old_val_loss = val_loss
         logging.info(f"Epoch [{epoch + 1}/{num_epochs}] - val loss: {val_loss/len(val_loader):.4f}")
 
@@ -165,9 +190,9 @@ if __name__=='__main__':
 
     args = parser.parse_args()
 
-    cfg_dict = load_config(args.cfg)
+    cfg_dict = dict(json.load(open(args.cfg)))
 
-    logging.basicConfig(filename= cfg_dict['log_dir'] + 'seg_train.log',filemode='a',level=logging.INFO)
+    logging.basicConfig(filename= cfg_dict['log_dir'] + 'seg_train_int.log',filemode='a',level=logging.INFO)
 
     logging.info(f"Loaded config file and initialized logging")
     logging.info(f"CFG_Dict: {cfg_dict}")
@@ -180,7 +205,8 @@ if __name__=='__main__':
     t1 = A.Compose([A.Resize(160,240),
                 A.augmentations.transforms.Normalize(mean=[0.5, 0.5,0.5], std=[0.5,0.5,0.5]),
                 # ^ normalizing the image - should this be done
-                ToTensorV2()]) # making it channel-first
+                ToTensorV2(),
+                ]) # making it channel-first
     
     train_dataset = VideoDataset(train_data_dir ,transform=t1)
     val_dataset= VideoDataset(val_data_dir,transform=t1,val=True)
@@ -189,8 +215,3 @@ if __name__=='__main__':
 
     os.makedirs(cfg_dict["model_root"] + "seg_model/", exist_ok=True)
     train(cfg_dict, train_loader, val_loader)
-
-
-
-
-
