@@ -27,7 +27,7 @@ class SegmentationDataset(Dataset):
     """
     Dataset class to load frames and their masks
     """
-    def __init__(self, root_dir, transform=None,val=False):
+    def __init__(self, root_dir, transform=None):
         self.root_dir = root_dir
         self.transform = transform
         self.folder_paths = [os.path.join(self.root_dir, i) for i in os.listdir(self.root_dir) if 'video_' in i]
@@ -176,7 +176,7 @@ if __name__=='__main__':
                 ]) # making it channel-first
     
     train_dataset = SegmentationDataset(train_data_dir ,transform=t1)
-    val_dataset= SegmentationDataset(val_data_dir,transform=t1,val=True)
+    val_dataset= SegmentationDataset(val_data_dir,transform=t1)
     train_loader = DataLoader(train_dataset, batch_size=cfg_dict["seg_batch_size"], shuffle=True,num_workers=1)
     val_loader=DataLoader(val_dataset,batch_size=cfg_dict["seg_batch_size"],shuffle=False,num_workers=1)
 
