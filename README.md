@@ -1,6 +1,6 @@
 # frame-pred-mask
 
-To set up on HPC, create a new conda environment with Python 3.8 in Singluarity with the requirements.txt file.
+To set up on HPC, create a new conda environment with Python 3.8 in Singluarity with the requirements.txt file. Unsquash the dataset in your scratch folder before you begin.
 Then, change the *.slurm files in this repo based on your created environment.
 Change the config.json to point to folders you have access to.
 All models will get saved in models/
